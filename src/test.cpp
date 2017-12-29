@@ -143,15 +143,15 @@ int main(int argc, char **argv)
             for (int j = 0; j < 5; j++)
             {
                 float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f, score = 0.0f, prob = 1.0f;
-                x = (cx + sigmoid(resultData32[30 * index + coffs[j]])) * 32;
-                y = (cy + sigmoid(resultData32[30 * index + coffs[j] + 1])) * 32;
+                x = sigmoid(resultData32[30 * index + coffs[j]]) + cx * 32;
+                y = sigmoid(resultData32[30 * index + coffs[j] + 1]) + cx * 32;
                 w = exp(resultData32[30 * index + coffs[j] + 2]) * anchors[2 * j] * 32;
                 h = exp(resultData32[30 * index + coffs[j] + 3]) * anchors[2 * j + 1] * 32;
                 score = sigmoid(resultData32[30 * index + scoffs[j]]);
                 // in this case, always 1 as there is only one possilbe class
                 // prob = vector of softmax function
 
-                if (score > 0.7f)
+                if (score > 0.6f)
                 {
                     Point pt1, pt2;
                     pt1.x = (int)round(x - w / 2);
