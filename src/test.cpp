@@ -151,7 +151,7 @@ int main(int argc, char **argv)
                 // in this case, always 1 as there is only one possilbe class
                 // prob = vector of softmax function
 
-                if (score > 0.6f)
+                if (score > 0.5f)
                 {
                     Point pt1, pt2;
                     pt1.x = (int)round(x - w / 2);
