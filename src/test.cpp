@@ -1,6 +1,6 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <mvnc.h>
 #include <cmath>
 #include <iostream>
@@ -104,7 +104,7 @@ int main(int argc, char **argv)
     Mat cvImg, aux;
     Size size(300, 300);
     resize(img, aux, size);
-    aux.convertTo(cvImg, CV_32F);
+    aux.convertTo(cvImg, CV_32FC3, 1 / 255.0);
 
     std::vector<float> array;
     if (cvImg.isContinuous())
@@ -120,12 +120,13 @@ int main(int argc, char **argv)
     }
 
     //NORMALIZE
+    printf("%d\n", (int)array.size());
     float *cvImg32 = (float *)malloc(((int)array.size()) * sizeof(float));
     for (int i = 0; i < (int)array.size() / 3; i++)
     {
-        cvImg32[3 * i] = (array[3 * i] * 255.0f - 127.5f) * 0.007843f;
-        cvImg32[3 * i + 1] = (array[3 * i + 1] * 255.0f - 127.5f) * 0.007843f;
-        cvImg32[3 * i + 2] = (array[3 * i + 2] * 255.0f - 127.5f) * 0.007843f;
+        cvImg32[3 * i] = (array[3 * i] * 2.0f - 1.0f);
+        cvImg32[3 * i + 1] = (array[3 * i + 1] * 2.0f - 1.0f);
+        cvImg32[3 * i + 2] = (array[3 * i + 2] * 2.0f - 1.0f);
     }
 
     half *image = (half *)malloc(((int)array.size()) * sizeof(half));
@@ -164,16 +165,56 @@ int main(int argc, char **argv)
     for (int i = 0; i < len; i++)
     {
         int index = 7 + i * 7;
-        
-        // if ((resultData32[index] != INFINITY || resultData32[index + 1] != INFINITY || resultData32[index + 1] != INFINITY || resultData32[index + 2] != INFINITY || resultData32[index + 3] != INFINITY || resultData32[index + 4] != INFINITY || resultData32[index + 5] != INFINITY || resultData32[index + 6] != INFINITY) || (resultData32[index] != NAN || resultData32[index + 1] != NAN || resultData32[index + 1] != NAN || resultData32[index + 2] != NAN || resultData32[index + 3] != NAN || resultData32[index + 4] != NAN || resultData32[index + 5] != NAN || resultData32[index + 6] != NAN))
-        if (1)
+
+        if (resultData32[index] != INFINITY && resultData32[index + 1] != INFINITY && resultData32[index + 1] != INFINITY && resultData32[index + 2] != INFINITY && resultData32[index + 3] != INFINITY && resultData32[index + 4] != INFINITY && resultData32[index + 5] != INFINITY && resultData32[index + 6] != INFINITY && !isnanf(resultData32[index]) && !isnanf(resultData32[index + 1]) && !isnanf(resultData32[index + 1]) && !isnanf(resultData32[index + 2]) && !isnanf(resultData32[index + 3]) && !isnanf(resultData32[index + 4]) && !isnanf(resultData32[index + 5]) && !isnanf(resultData32[index + 6]))
         {
-            float x1, x2, y1, y2;
+            float x1, x2, y1, y2, score;
+            int center[2];
             x1 = resultData32[index + 3] * img.size().width;
             x2 = resultData32[index + 5] * img.size().width;
             y1 = resultData32[index + 4] * img.size().height;
             y2 = resultData32[index + 6] * img.size().height;
-            printf("\tBox[x1:%f, y1:%f, x2: %f, y2:%f]\n", x1, y1, x2, y2);
+
+            /* Discard if is out of bounds*/
+            if (x1 < 0 || y1 < 0 || x2 < 0 || y2 < 0)
+            {
+                continue;
+            }
+
+            if (x1 > img.size().width || y1 > img.size().height || x2 > img.size().width || y2 > img.size().height)
+            {
+                continue;
+            }
+            /*******************************/
+
+            /* Discard if dimensions make no sense */
+            float rel = (y2 - y1) / (x2 - x1);
+            if (rel > 3.0f || rel < 0.33f)
+            {
+                continue;
+            }
+            /***************************************/
+
+            center[0] = (int)round((x1 + x2) / 2);
+            center[1] = (int)round((y1 + y2) / 2);
+            score = resultData32[index + 2] * 100.0f;
+            const char *label = labels[(int)round(resultData32[index + 1])];
+            Point pt1, pt2;
+            pt1.x = (int)x1;
+            pt1.y = (int)y1;
+            pt2.x = (int)x2;
+            pt2.y = (int)y2;
+            if (score > 0.6f)
+            {
+                char prob[20];
+                sprintf(prob, "%f", score);
+                rectangle(img, pt1, pt2, Scalar(255, 0, 0), 2);
+                Scalar col(125, 175, 75);
+                Size labelsize = getTextSize(label, FONT_HERSHEY_SIMPLEX, 0.5, 1, NULL);
+                // rectangle(img, Point(pt1.x - 1, pt1.y - labelsize.height - 1), Point(pt1.x + labelsize.width + 1, pt1.y + labelsize.height + 1), col, -1);
+                putText(img, prob, Point(pt1.x, pt1.y + labelsize.height), FONT_HERSHEY_SIMPLEX, 0.5, Scalar(255, 255, 255), 1);
+            }
+            printf("\tBox%d[x1:%f, y1:%f, x2: %f, y2:%f] score: %f label: %s\n", i, x1, y1, x2, y2, score, label);
         }
     }
     // printf("Obtenida inferencia de la imagen\n");
@@ -216,8 +257,8 @@ int main(int argc, char **argv)
     //         }
     //     }
     // }
-    // imshow("test", img);
-    // cv::waitKey();
+    imshow("test", img);
+    cv::waitKey();
     // printf("Index of top result is: %d\n", maxIndex);
     // printf("Probability of top result is: %f\n", maxResult);
 
