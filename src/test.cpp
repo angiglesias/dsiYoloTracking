@@ -21,12 +21,13 @@
 // #include "half.hpp"
 
 #define GRAPH_PATH "resources/graph"
-#define TEST_IMAGE "resources/test2.jpg"
+#define TEST_IMAGE "resources/image.jpg"
 
 // 16 bits.  will use this to store half precision floats since C++ has no
 // built in support for it.
 typedef unsigned short half;
-const int networkDim = 416;
+const int networkDim = 300;
+const char *labels[] = {"background", "marcador"};
 const float anchors[] = {0.57273, 0.677385, 1.87446, 2.06253, 3.33843, 5.47434, 7.88282, 3.52778, 9.77052, 9.16828};
 const int coffs[] = {0, 4, 8, 12, 16};
 const int scoffs[] = {20, 21, 22, 23, 24};
@@ -34,6 +35,7 @@ const int pcoffs[] = {25, 26, 27, 28, 29};
 
 void *LoadGraphFile(const char *path, unsigned int *length);
 half *LoadImage(const char *path, int reqsize);
+void normalize_image(std::vector<float> image, float **dst);
 
 using namespace cv;
 
@@ -99,8 +101,37 @@ int main(int argc, char **argv)
     // when done with it.
     printf("Successfully allocated graph for %s\n", GRAPH_PATH);
 
-    half *image = LoadImage(TEST_IMAGE, networkDim);
-    unsigned int lenImage = 3 * networkDim * networkDim * sizeof(half);
+    Mat cvImg, aux;
+    Size size(300, 300);
+    resize(img, aux, size);
+    aux.convertTo(cvImg, CV_32F);
+
+    std::vector<float> array;
+    if (cvImg.isContinuous())
+    {
+        array.assign((float *)cvImg.datastart, (float *)cvImg.dataend);
+    }
+    else
+    {
+        for (int i = 0; i < cvImg.rows; ++i)
+        {
+            array.insert(array.end(), cvImg.ptr<float>(i), cvImg.ptr<float>(i) + cvImg.cols);
+        }
+    }
+
+    //NORMALIZE
+    float *cvImg32 = (float *)malloc(((int)array.size()) * sizeof(float));
+    for (int i = 0; i < (int)array.size() / 3; i++)
+    {
+        cvImg32[3 * i] = (array[3 * i] * 255.0f - 127.5f) * 0.007843f;
+        cvImg32[3 * i + 1] = (array[3 * i + 1] * 255.0f - 127.5f) * 0.007843f;
+        cvImg32[3 * i + 2] = (array[3 * i + 2] * 255.0f - 127.5f) * 0.007843f;
+    }
+
+    half *image = (half *)malloc(((int)array.size()) * sizeof(half));
+    unsigned int lenImage = ((int)array.size());
+    floattofp16((unsigned char *)(void *)image, cvImg32, lenImage);
+    // half *image = LoadImage(TEST_IMAGE, networkDim);
 
     retCode = mvncLoadTensor(graphHandle, image, lenImage, NULL);
     free(image);
@@ -128,52 +159,67 @@ int main(int argc, char **argv)
     resultData32 = (float *)malloc(numResults * sizeof(float));
 
     fp16tofloat(resultData32, (unsigned char *)resultData16, numResults);
+    float len = resultData32[0];
 
-    printf("Hey %d\n", numResults);
-    printf("Obtenida inferencia de la imagen\n");
-
-    float maxResult = 0.0, classProb = 0.0;
-    int maxIndex = -1;
-    for (int cx = 0; cx < 13; cx++)
+    for (int i = 0; i < len; i++)
     {
-        for (int cy = 0; cy < 13; cy++)
+        int index = 7 + i * 7;
+        
+        // if ((resultData32[index] != INFINITY || resultData32[index + 1] != INFINITY || resultData32[index + 1] != INFINITY || resultData32[index + 2] != INFINITY || resultData32[index + 3] != INFINITY || resultData32[index + 4] != INFINITY || resultData32[index + 5] != INFINITY || resultData32[index + 6] != INFINITY) || (resultData32[index] != NAN || resultData32[index + 1] != NAN || resultData32[index + 1] != NAN || resultData32[index + 2] != NAN || resultData32[index + 3] != NAN || resultData32[index + 4] != NAN || resultData32[index + 5] != NAN || resultData32[index + 6] != NAN))
+        if (1)
         {
-            int index = 13 * cx + cy;
-            printf("Cell %d:\n", index);
-            for (int j = 0; j < 5; j++)
-            {
-                float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f, score = 0.0f, prob = 1.0f;
-                x = sigmoid(resultData32[30 * index + coffs[j]]) + cx * 32;
-                y = sigmoid(resultData32[30 * index + coffs[j] + 1]) + cx * 32;
-                w = exp(resultData32[30 * index + coffs[j] + 2]) * anchors[2 * j] * 32;
-                h = exp(resultData32[30 * index + coffs[j] + 3]) * anchors[2 * j + 1] * 32;
-                score = sigmoid(resultData32[30 * index + scoffs[j]]);
-                // in this case, always 1 as there is only one possilbe class
-                // prob = vector of softmax function
-
-                if (score > 0.5f)
-                {
-                    Point pt1, pt2;
-                    pt1.x = (int)round(x - w / 2);
-                    pt1.y = (int)round(y - h / 2);
-                    pt2.x = (int)round(x + w / 2);
-                    pt2.y = (int)round(y + h / 2);
-                    rectangle(img, pt1, pt2, Scalar(255, 0, 0), 2);
-                    printf("\tBox[x:%f, y:%f, w: %f, h:%f] score: %f, class: %f \n", x, y, w, h, score, prob);
-                }
-                if (maxResult < score)
-                {
-                    maxResult = score;
-                    maxIndex = index;
-                    classProb = prob;
-                }
-            }
+            float x1, x2, y1, y2;
+            x1 = resultData32[index + 3] * img.size().width;
+            x2 = resultData32[index + 5] * img.size().width;
+            y1 = resultData32[index + 4] * img.size().height;
+            y2 = resultData32[index + 6] * img.size().height;
+            printf("\tBox[x1:%f, y1:%f, x2: %f, y2:%f]\n", x1, y1, x2, y2);
         }
     }
-    imshow("test", img);
-    cv::waitKey();
-    printf("Index of top result is: %d\n", maxIndex);
-    printf("Probability of top result is: %f\n", maxResult);
+    // printf("Obtenida inferencia de la imagen\n");
+
+    // float maxResult = 0.0, classProb = 0.0;
+    // int maxIndex = -1;
+    // for (int cx = 0; cx < 13; cx++)
+    // {
+    //     for (int cy = 0; cy < 13; cy++)
+    //     {
+    //         int index = 13 * cx + cy;
+    //         printf("Cell %d:\n", index);
+    //         for (int j = 0; j < 5; j++)
+    //         {
+    //             float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f, score = 0.0f, prob = 1.0f;
+    //             x = (sigmoid(resultData32[30 * index + coffs[j]]) + cx) * 32;
+    //             y = (sigmoid(resultData32[30 * index + coffs[j] + 1]) + cy) * 32;
+    //             w = exp(resultData32[30 * index + coffs[j] + 2]) * anchors[2 * j] * 32;
+    //             h = exp(resultData32[30 * index + coffs[j] + 3]) * anchors[2 * j + 1] * 32;
+    //             score = sigmoid(resultData32[30 * index + scoffs[j]]);
+    //             // in this case, always 1 as there is only one possilbe class
+    //             prob = exp(resultData32[30 * index + pcoffs[j]]);
+
+    //             if (y > 140 && y < 300 && x > 140 && x < 300 && w > 70 && w < 300 && h > 70 && h < 300)
+    //             {
+    //                 Point pt1, pt2;
+    //                 pt1.x = (int)round((x - w / 2));
+    //                 pt1.y = (int)round((y - h / 2));
+    //                 pt2.x = (int)round((x + w / 2));
+    //                 pt2.y = (int)round((y + h / 2));
+    //                 rectangle(img, pt1, pt2, Scalar(255, 0, 0), 2);
+    //                 printf("\tBox[x:%f, y:%f, w: %f, h:%f] score: %f, class: %f \n", x, y, w, h, score, prob);
+    //             }
+    //             if (maxResult < score * prob)
+    //             {
+    //                 maxResult = score * prob;
+    //                 maxIndex = index;
+    //                 classProb = score;
+    //             }
+    //         }
+    //     }
+    // }
+    // imshow("test", img);
+    // cv::waitKey();
+    // printf("Index of top result is: %d\n", maxIndex);
+    // printf("Probability of top result is: %f\n", maxResult);
 
     printf("Imagen cargada en dispositivo con exito\n");
 
@@ -265,29 +311,46 @@ half *LoadImage(const char *path, int reqSize)
         perror("malloc");
         return NULL;
     }
-    for (i = 0; i < reqSize * reqSize; i++)
-    {
-        float blue, green, red;
-        blue = imgfp32[3 * i + 2];
-        green = imgfp32[3 * i + 1];
-        red = imgfp32[3 * i + 0];
-
-        imgfp32[3 * i + 0] = blue / 255.0f;
-        imgfp32[3 * i + 1] = green / 255.0f;
-        imgfp32[3 * i + 2] = red / 255.0f;
-
-        // uncomment to see what values are getting passed to mvncLoadTensor() before conversion to half float
-        //printf("Blue: %f, Green: %f,  Red: %f \n", imgfp32[3*i+0], imgfp32[3*i+1], imgfp32[3*i+2]);
-    }
+    //normalize
+    // normalize_image(imgfp32);
     floattofp16((unsigned char *)imgfp16, imgfp32, 3 * reqSize * reqSize);
     free(imgfp32);
-    // for(i = 0; i < reqSize*reqSize; i++) {
-    //     half blue, green, red;
-
-    //     blue = imgfp16[3*i+2];
-    //     green = imgfp16[3*i+1];
-    //     red = imgfp16[3*i+0];
-    //     printf("Blue: %d, Green: %d,  Red: %d \n", blue, green, red);
-    // }
     return imgfp16;
+}
+//normalize image
+void normalize_image(std::vector<float> image, float **dst)
+{
+    // float maxRed = 0.0f, minRed = 255.0f, maxGreen = 0.0f, minGreen = 255.0f, maxBlue = 0.0f, minBlue = 255.0f;
+    // for (int i = 0; i < 173056; i++)
+    // {
+    //     //red
+    //     if (image[3 * i] > maxRed)
+    //         maxRed = image[3 * i];
+    //     if (image[3 * i] < minRed)
+    //         minRed = image[3 * i];
+    //     //green
+    //     if (image[3 * i + 1] > maxGreen)
+    //         maxGreen = image[3 * i + 1];
+    //     if (image[3 * i + 1] < minGreen)
+    //         minGreen = image[3 * i + 1];
+    //     //blue
+    //     if (image[3 * i + 2] > maxBlue)
+    //         maxBlue = image[3 * i + 2];
+    //     if (image[3 * i + 2] < minBlue)
+    //         minBlue = image[3 * i + 2];
+    // }
+    // for (int i = 0; i < 173056; i++)
+    // {
+    //     image[3 * i] = (image[3 * i] - minRed) / (maxRed - minRed);
+    //     image[3 * i + 1] = (image[3 * i + 1] - minGreen) / (maxGreen - minGreen);
+    //     image[3 * i + 2] = (image[3 * i + 2] - minBlue) / (maxBlue - minBlue);
+    // }
+    float *toRet = (float *)malloc(((int)image.size()) * sizeof(float));
+    for (int i = 0; i < sizeof(toRet) / 3; i++)
+    {
+        toRet[3 * i] = (image[3 * i] * 255.0f - 127.5) * 0.007843;
+        toRet[3 * i + 1] = (image[3 * i + 1] * 255.0f - 127.5) * 0.007843;
+        toRet[3 * i + 2] = (image[3 * i + 2] * 255.0f - 127.5) * 0.007843;
+    }
+    *dst = toRet;
 }
