@@ -257,8 +257,9 @@ int main(int argc, char **argv)
     //         }
     //     }
     // }
-    imshow("test", img);
-    cv::waitKey();
+    // imshow("test", img);
+    // cv::waitKey();
+    imwrite("result.jpg", img);
     // printf("Index of top result is: %d\n", maxIndex);
     // printf("Probability of top result is: %f\n", maxResult);
 
